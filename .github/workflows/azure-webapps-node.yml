@@ -1,0 +1,18 @@
+on:
+  push:
+    branches: [ "main" ]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+      - name: Package VS Code Extension
+        id: package
+        uses: nhedger/package-vscode-extension@v1
+      - name: Publish VS Code extension artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: teacher-mode
+          path: ${{ steps.package.outputs.packagePath }}
+
