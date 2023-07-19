@@ -7,6 +7,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v3
+      - name: Yarn install cache
+        uses: c-hive/gha-yarn-cache@v1
       - name: Package VS Code Extension
         id: package
         uses: nhedger/package-vscode-extension@v1
