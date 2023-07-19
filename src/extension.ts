@@ -1,84 +1,101 @@
 import * as vscode from "vscode";
 
-type QSChoice = "off" | "on" | "inline";
+// - Color buttons and make smaller
+// =>
 
-interface TeacherSettings {
-  ["editor.fontLigatures"]: boolean;
-  ["editor.quickSuggestions"]: { other: QSChoice };
-  ["editor.suggestOnTriggerCharacters"]: boolean;
+type QSChoice = "off" | "on" | "inline";
+interface QSSetting {
+  other: QSChoice;
 }
+interface TeacherSetting<T> {
+  section: string;
+  defaultVal: T;
+  enabledVal: T;
+}
+
+function teacherSetting<T>(section: string, enabledVal: T): TeacherSetting<T> {
+  const defaultVal = vscode.workspace.getConfiguration().inspect(section)
+    ?.defaultValue as T;
+  return {
+    section,
+    enabledVal,
+    defaultVal,
+  } as const;
+}
+
+const teacherMode = [
+  teacherSetting<boolean>("editor.fontLigatures", false),
+  teacherSetting<QSSetting>("editor.quickSuggestions", { other: "off" }),
+  teacherSetting<boolean>("editor.suggestOnTriggerCharacters", false),
+  teacherSetting<boolean>("editor.parameterHints.enabled", false),
+] as const;
 
 let statusBarItem: vscode.StatusBarItem;
 
-export function activate(context: vscode.ExtensionContext) {
-  let teacherMode = false;
+async function enable(context: vscode.ExtensionContext) {
+  // Store old settings
+  const userConfig = vscode.workspace.getConfiguration();
+  for (let settingi = 0; settingi < teacherMode.length; settingi++) {
+    const section = teacherMode[settingi].section;
+    // console.log("Storing:", section, userConfig.get(section));
+    // Store in memory
+    await context.workspaceState.update(section, userConfig.get(section));
+    // Update with settings
+    // console.log("Updating:", section, teacherMode[settingi].enabledVal);
+    await userConfig.update(section, teacherMode[settingi].enabledVal, true);
+    const newSetting = await userConfig.get(section);
+    // console.log("After update:", newSetting);
+  }
+}
+async function disable(context: vscode.ExtensionContext) {
+  // Retrieve old settings
+  const userConfig = vscode.workspace.getConfiguration();
+  for (let settingi = 0; settingi < teacherMode.length; settingi++) {
+    const section = teacherMode[settingi].section;
+    await userConfig.update(section, context.workspaceState.get(section), true);
+  }
+}
 
+export async function activate(context: vscode.ExtensionContext) {
+  function setStatusBar(teacherMode: boolean) {
+    statusBarItem.text = `${teacherMode ? "$(check)" : ""}$(mortar-board)`;
+    statusBarItem.tooltip = teacherMode
+      ? "Teacher mode enabled"
+      : "Teacher mode disabled";
+    statusBarItem.color = teacherMode
+      ? new vscode.ThemeColor("terminal.ansiGreen")
+      : new vscode.ThemeColor("statusBar.foreground");
+
+    statusBarItem.show();
+  }
+
+  let teacherMode =
+    ((await context.globalState.get("teacherMode")) as boolean) || false;
   // Create a status bar item
   statusBarItem = vscode.window.createStatusBarItem(
     vscode.StatusBarAlignment.Right,
     100
   );
-
-  statusBarItem.text = "Teacher Mode (disabled)";
   statusBarItem.command = "teacher-mode.toggle"; // The command to execute when the item is clicked
+  // Set the status bar item
+  setStatusBar(teacherMode);
   // Show the status bar item
   statusBarItem.show();
 
   let disposable = vscode.commands.registerCommand(
     "teacher-mode.toggle",
-    () => {
-      if (teacherMode === false) {
-        teacherMode = true;
-        statusBarItem.text = "Teacher Mode (enabled)";
+    async () => {
+      let teacherMode =
+        ((await context.globalState.get("teacherMode")) as boolean) || false;
 
-        // Store old settings
-        const userConfig = vscode.workspace.getConfiguration();
-        const originalSettings: TeacherSettings = {
-          ["editor.fontLigatures"]:
-            userConfig.get("editor.fontLigatures") || false,
-          ["editor.quickSuggestions"]: userConfig.get(
-            "editor.quickSuggestions"
-          ) || { other: "on" },
-          ["editor.suggestOnTriggerCharacters"]:
-            userConfig.get("editor.suggestOnTriggerCharacters") || true,
-        };
-        context.globalState.update("originalSettings", originalSettings);
-
-        // Update settings to teachermode
-        userConfig.update("editor.fontLigatures", false, true);
-        userConfig.update("editor.quickSuggestions", { other: "off" }, true);
-        userConfig.update("editor.suggestOnTriggerCharacters", false, true);
+      if (!teacherMode) {
+        await context.globalState.update("teacherMode", true);
+        setStatusBar(true);
+        enable(context);
       } else {
-        teacherMode = false;
-        statusBarItem.text = "Teacher Mode (disabled)";
-
-        // Retrieve old settings
-        const userConfig = vscode.workspace.getConfiguration();
-
-        const originalSettings: TeacherSettings | undefined =
-          context.globalState.get("originalSettings");
-
-        if (originalSettings) {
-          userConfig.update(
-            "editor.fontLigatures",
-            originalSettings["editor.fontLigatures"],
-            true
-          );
-          userConfig.update(
-            "editor.quickSuggestions",
-            originalSettings["editor.quickSuggestions"],
-            true
-          );
-          userConfig.update(
-            "editor.suggestOnTriggerCharacters",
-            originalSettings["editor.suggestOnTriggerCharacters"],
-            true
-          );
-        } else {
-          vscode.window.showWarningMessage(
-            "Teacher Mode was unable to restore your settings."
-          );
-        }
+        await context.globalState.update("teacherMode", false);
+        setStatusBar(false);
+        disable(context);
       }
     }
   );
@@ -86,5 +103,3 @@ export function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(disposable);
   context.subscriptions.push(statusBarItem);
 }
-
-export function deactivate() {}
